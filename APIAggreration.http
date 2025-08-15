@@ -1,0 +1,6 @@
+@APIAggreration_HostAddress = http://localhost:5156
+
+GET {{APIAggreration_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
