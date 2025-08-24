@@ -1,4 +1,5 @@
-﻿using static APIAggreration.Models.DataProviderModel;
+﻿using APIAggreration.Enums;
+using static APIAggreration.Models.DataProviderModel;
 
 namespace APIAggreration.Classes
 {
@@ -6,8 +7,8 @@ namespace APIAggreration.Classes
     {
         public static readonly Dictionary<string, object> Cache = new()
         {
-            { "Weather", new WeatherResponse(new DateTime().ToShortDateString(), "1", "Weather") },
-            { "News", new NewsResponse(new DateTime().ToShortDateString(), "2", "News") }
+            { ApiNames.Weather, new WeatherResponse(new DateTime().ToShortDateString(), "1", ApiNames.Weather) },
+            {  ApiNames.News, new NewsResponse(new DateTime().ToShortDateString(), "2", ApiNames.News) }
         };
     }
 }

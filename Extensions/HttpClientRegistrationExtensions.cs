@@ -1,92 +1,88 @@
 ﻿using APIAggreration.Classes;
+using APIAggreration.Enums;
 using Polly;
 using Polly.Extensions.Http;
+using System.Text.Json;
 using static APIAggreration.Models.DataProviderModel;
 
 namespace APIAggreration.Extensions
 {
     public static class HttpClientRegistrationExtensions
     {
-        public static IServiceCollection AddExternalApiClients(this IServiceCollection services)
+        public static IServiceCollection AddExternalApiClients(this IServiceCollection services, IConfiguration config)
         {
-            // fallback cache
-            RegisterApiClient<WeatherResponse>("Weather", FallbackData.Cache["Weather"], services);
-            RegisterApiClient<NewsResponse>("News", FallbackData.Cache["News"], services);
+            RegisterApiClient<WeatherResponse>(ApiNames.Weather, FallbackData.Cache[ApiNames.Weather], services, config);
+            RegisterApiClient<NewsResponse>(ApiNames.News, FallbackData.Cache[ApiNames.News], services, config);
             return services;
         }
 
-        static void RegisterApiClient<T>(string name, object fallbackValue, IServiceCollection services)
+        static void RegisterApiClient<T>(string name, object fallbackValue,
+            IServiceCollection services, IConfiguration config)
         {
             // Central retry policy
             var retryPolicy = HttpPolicyExtensions
                 .HandleTransientHttpError()
                 .WaitAndRetryAsync(
-                    3,
-                    attempt => TimeSpan.FromMilliseconds(200 * attempt),
-                    (outcome, timespan, retryAttempt, _) =>
+                    3, //times to try
+                    attempt => TimeSpan.FromMilliseconds(200 * attempt), //calculates the delay before each retry.
+                    (outcome, timespan, retryAttempt, _) => //callback that runs each time a retry happens.
                     {
                         Console.WriteLine($"Retry {retryAttempt} " +
                             $"after {timespan.TotalMilliseconds}ms" +
                             $" due to {outcome.Exception?.Message}");
                     });
 
-            // Central circuit breaker
+            // Central circuit breaker policy
             var circuitBreakerPolicy = HttpPolicyExtensions
                 .HandleTransientHttpError()
                 .CircuitBreakerAsync(5, TimeSpan.FromSeconds(30));
+            //after 5 failures blocks calls Example: 30 seconds.
 
-            // FallbackPolicy
-            var fallbackPolicyWeather = Policy
-                .Handle<Exception>()
-                .FallbackAsync(async (fallback) => await Resp(1)
-                .ConfigureAwait(false));
+            //var fallbackPolicyNews = Policy
+            //        .Handle<Exception>()
+            //        .FallbackAsync(async (fallback) => await Resp(2)
+            //        .ConfigureAwait(false));
 
-            var fallbackPolicyNews = Policy
-                .Handle<Exception>()
-                .FallbackAsync(async (fallback) => await Resp(2)
-                .ConfigureAwait(false));
+            var json = JsonSerializer.Serialize(FallbackData.Cache[$"{name}"]);
+
+            var fallbackPolicy = Policy<HttpResponseMessage>
+                   .Handle<Exception>() // catch any exception
+                   .FallbackAsync(
+                     new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                     {
+                         Content = 
+                         new StringContent(json, System.Text.Encoding.UTF8, "application/json")
+                     });
 
             services.AddHttpClient(name, c =>
             {
-                c.BaseAddress = new Uri("https://newsapi.org/v2/top-headlines?sources=bbc-news&apiKey=");
-                c.DefaultRequestHeaders.Add("ApiKey", "02be176b87ed479b885fce22a14eea79");
+                c.BaseAddress = new Uri(config[$"Jwt:Integrations:{name}:BaseUrl"]);
+                c.DefaultRequestHeaders.Add(config["Jwt:Key"], config[$"Jwt:Integrations:{name}:ApiKey"]);
                 c.DefaultRequestHeaders.Accept
                 .Add(new System.Net.Http.Headers.
                 MediaTypeWithQualityHeaderValue("application/json"));
             })
            .AddTransientHttpErrorPolicy(_ => retryPolicy)
-           .AddTransientHttpErrorPolicy(_ => circuitBreakerPolicy);
-           //.AddPolicyHandler((IAsyncPolicy<HttpResponseMessage>)fallbackPolicyNews);
-
-            services.AddHttpClient(name, c =>
-            {
-                c.BaseAddress = new Uri("http://api.openweathermap.org/data/2.5/forecast?id=524901&appid=");
-                c.DefaultRequestHeaders.Add("ApiKey", "78e9be6df696a4648fb15499d2f8a1d8");
-                c.DefaultRequestHeaders.Accept
-                .Add(new System.Net.Http.Headers.
-                MediaTypeWithQualityHeaderValue("application/json"));
-            })
-           .AddTransientHttpErrorPolicy(_ => retryPolicy)
-           .AddTransientHttpErrorPolicy(_ => circuitBreakerPolicy);
-           //.AddPolicyHandler((IAsyncPolicy<HttpResponseMessage>)fallbackPolicyWeather);
+           .AddTransientHttpErrorPolicy(_ => circuitBreakerPolicy)
+           .AddPolicyHandler(fallbackPolicy);
         }
 
-        async static Task<HttpResponseMessage> Resp(short kind)
-        {
-            var fallbackValue = FallbackData.Cache["Weather"];
-            if (kind == 1)
-            {
-                fallbackValue = FallbackData.Cache["Weather"];
-            }
-            else if (kind == 2)
-            {
-                fallbackValue = FallbackData.Cache["News"];
-            }
-            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            {
-                Content = JsonContent.Create(fallbackValue)
-            };
-            return response;
-        }
+        //async static Task<HttpResponseMessage> Resp(short kind)
+        //{
+        //    var fallbackValue = FallbackData.Cache["Weather"];
+        //    if (kind == 1)
+        //    {
+        //        fallbackValue = FallbackData.Cache["Weather"];
+        //    }
+        //    else if (kind == 2)
+        //    {
+        //        fallbackValue = FallbackData.Cache["News"];
+        //    }
+        //    var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        //    {
+        //        Content = JsonContent.Create(fallbackValue)
+        //    };
+        //    return response;
+        //}
     }
 }

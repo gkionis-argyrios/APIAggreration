@@ -1,9 +1,11 @@
 ﻿using APIAggreration.Classes;
+using APIAggreration.Enums;
 using APIAggreration.Interfaces;
 using APIAggreration.Models;
 using Microsoft.Extensions.Caching.Memory;
 using System.Diagnostics;
-using static APIAggreration.Models.DataProviderModel;
+using System.Globalization;
+using System.Text.Json;
 
 namespace APIAggreration.Services
 {
@@ -11,10 +13,12 @@ namespace APIAggreration.Services
     {
         private readonly HttpClient _http;
         private readonly IMemoryCache _cache;
-        public DataProviderService(HttpClient http, IMemoryCache cache)
+        private readonly IConfiguration _config;
+        public DataProviderService(HttpClient http, IMemoryCache cache, IConfiguration config)
         {
             _http = http;
             _cache = cache;
+            _config = config;
         }
 
         private async Task<List<AggregatedItemModel>> GetCachedOrGetFromNewsAsync(
@@ -24,12 +28,12 @@ namespace APIAggreration.Services
         {
             if (_cache.TryGetValue(cacheKey, out List<AggregatedItemModel>? cached))
             {
-                return cached;
+                return cached ?? [];
             }
 
             var data = await fetchFunc;
             if (data != null && data.Count > 0) _cache.Set(cacheKey, data, duration);
-            return data;
+            return data ?? [];
         }
 
         private async Task<List<AggregatedItemModel>> GetCachedOrGetFromWeatherAsync(
@@ -39,67 +43,58 @@ namespace APIAggreration.Services
         {
             if (_cache.TryGetValue(cacheKey, out List<AggregatedItemModel>? cached))
             {
-                return cached;
+                return cached ?? [];
             }
 
             var data = await fetchFunc;
             if (data != null && data.Count > 0) _cache.Set(cacheKey, data, duration);
-            return data;
+            return data ?? [];
         }
 
-        private async Task<List<AggregatedItemModel>> GetFromNewsAsync()
+        public List<T>? DeserializeList<T>(string json)
+        {
+            return JsonSerializer.Deserialize<List<T>>(json);
+        }
+
+        private async Task<List<AggregatedItemModel>> GetFromAsync(string apiName, string url)
         {
             var sw = Stopwatch.StartNew();
             try
             {
-                var json = await _http.GetStringAsync("https://newsapi.org/v2/top-headlines?sources=bbc-news&apiKey=02be176b87ed479b885fce22a14eea79");
-
+                var json = await _http.GetStringAsync(url);
                 sw.Stop();
-                PerformanceTracker.Record("News", sw.Elapsed.TotalMilliseconds);
+                PerformanceTracker.Record(apiName, sw.Elapsed.TotalMilliseconds);
 
-                var rawItems = System.Text.Json.JsonSerializer.Deserialize<List<Models.NewsResponse>>(json);
-
-                if (rawItems == null) return [];
-                return rawItems.Select(x => new AggregatedItemModel
+                if (apiName == ApiNames.News)
                 {
-                    Date = x.Date,
-                   // Category = x.Category,
-                    Source = "News"
-                }).ToList();
+                    List<NewsResponse>? rawItems = DeserializeList<NewsResponse>(json);
+                    
+                    if (rawItems == null) return [];
+                    return rawItems.Select(x => new AggregatedItemModel
+                    {
+                        Date = x.Date,
+                        // Category = x.Category,
+                        Source = apiName
+                    }).ToList();
+                }
+                else
+                {
+                    List<NewsResponse>? rawItems = DeserializeList<NewsResponse>(json);
+                    sw.Stop();
+                    PerformanceTracker.Record(apiName, sw.Elapsed.TotalMilliseconds);
+                    if (rawItems == null) return [];
+                    return rawItems.Select(x => new AggregatedItemModel
+                    {
+                        Date = x.Date,
+                        // Category = x.Category,
+                        Source = apiName
+                    }).ToList();
+                }
             }
             catch (Exception ex)
             {
                 sw.Stop();
-                PerformanceTracker.Record("News", sw.Elapsed.TotalMilliseconds);
-                Console.WriteLine($"Error calling API: {ex.Message}");
-                return [];
-            }
-        }
-
-        private async Task<List<AggregatedItemModel>> GetFromWeatherAsync()
-        {
-            var sw = Stopwatch.StartNew();
-            try
-            {
-                var json = await _http.GetStringAsync("http://api.openweathermap.org/data/2.5/forecast?id=524901&appid=78e9be6df696a4648fb15499d2f8a1d8");
-
-                sw.Stop();
-                PerformanceTracker.Record("Weather", sw.Elapsed.TotalMilliseconds);
-
-                var rawItems = System.Text.Json.JsonSerializer.Deserialize<List<Models.WeatherResponse>>(json);
-
-                if (rawItems == null) return [];
-                return rawItems.Select(x => new AggregatedItemModel
-                {
-                    Date = x.Date,
-                   // Category = x.Category,
-                    Source = "Weather"
-                }).ToList();
-            }
-            catch (Exception ex)
-            {
-                sw.Stop();
-                PerformanceTracker.Record("Weather", sw.Elapsed.TotalMilliseconds);
+                PerformanceTracker.Record(apiName, sw.Elapsed.TotalMilliseconds);
                 Console.WriteLine($"Error calling API: {ex.Message}");
                 return [];
             }
@@ -109,42 +104,70 @@ namespace APIAggreration.Services
         string? sortBy = "date",
         string sortOrder = "asc")
         {
-
+            var aggregatedData = new List<AggregatedItemModel>();
+            List<AggregatedItemModel> cachedData = [];
             // Try to get the whole aggregated data from cache
-            if (_cache.TryGetValue("aggregated_data", out List<AggregatedItemModel>? cachedData))
+            if (_cache.TryGetValue("aggregated_data", out List<AggregatedItemModel>? cached))
             {
-                return cachedData;
+                cachedData = cached ?? [];
             }
 
-            // Call all APIs in parallel
-            var newsClient =
-                GetCachedOrGetFromNewsAsync("news_data", GetFromNewsAsync(),
-                TimeSpan.FromMinutes(1));
-            var weatherClient =
-                GetCachedOrGetFromWeatherAsync("weather_data", GetFromWeatherAsync(),
-                TimeSpan.FromMinutes(1));
+            if (cachedData == null || cachedData.Count == 0)
+            {
+                // Call all APIs in parallel
+                //data expires at 1 min
+                var urlApi1 = $"{_config["Integrations:Weather:BaseUrl"]}{_config["Integrations:Weather:ApiKey"]}";
+                var urlApi2 = $"{_config["Integrations:News:BaseUrl"]}{_config["Integrations:News:ApiKey"]}";
+                var newsClient =
+                    GetCachedOrGetFromNewsAsync("news_data", GetFromAsync(ApiNames.News, urlApi2),
+                    TimeSpan.FromMinutes(1));
+                var weatherClient =
+                    GetCachedOrGetFromWeatherAsync("weather_data", GetFromAsync(ApiNames.Weather, urlApi1),
+                    TimeSpan.FromMinutes(1));
 
-            await Task.WhenAll(weatherClient, newsClient);
+                await Task.WhenAll(weatherClient, newsClient);
 
-            // Merge results
-            var aggregatedData = new List<AggregatedItemModel>();
-            aggregatedData.AddRange(weatherClient.Result);
-            aggregatedData.AddRange(newsClient.Result);
+                // Merge results
+                aggregatedData.AddRange(weatherClient.Result);
+                aggregatedData.AddRange(newsClient.Result);
 
-            // Cache the aggregated result separately
-            _cache.Set("aggregated_data", aggregatedData, TimeSpan.FromSeconds(30));
+                //Cache the aggregated result separately
+                if (aggregatedData == null || aggregatedData.Count == 0) return [];
 
+                _cache.Set("aggregated_data", aggregatedData, TimeSpan.FromSeconds(30));
+
+                aggregatedData = filterData(category, aggregatedData);
+                aggregatedData = sortData(aggregatedData, sortBy, sortOrder);
+            }
+            else
+            {
+                aggregatedData = filterData(category, cachedData);
+                aggregatedData = sortData(cachedData, sortBy, sortOrder);
+            }
+
+            return aggregatedData;
+        }
+
+        private List<AggregatedItemModel> filterData(string? category,
+            List<AggregatedItemModel> aggregatedData)
+        {
             // Filtering
             if (!string.IsNullOrEmpty(category))
             {
-                aggregatedData = aggregatedData
+                return aggregatedData
                     .Where(x =>
                     x.Category.Equals(category, StringComparison.OrdinalIgnoreCase))
                     .ToList();
             }
+            else return aggregatedData;
+        }
 
+        private List<AggregatedItemModel> sortData(List<AggregatedItemModel> aggregatedData,
+            string? sortBy = "date",
+        string sortOrder = "asc")
+        {
             // Sorting
-            aggregatedData = sortBy?.ToLower() switch
+            return sortBy?.ToLower() switch
             {
                 "date" => sortOrder.ToLower() == "desc" ?
                 aggregatedData
@@ -155,9 +178,8 @@ namespace APIAggreration.Services
                 aggregatedData.OrderBy(x => x.Category).ToList(),
                 _ => aggregatedData
             };
-
-            return aggregatedData;
         }
+
         async Task<T?> SecureCall<T>(Task<T?> task)
         {
             try { return await task; }

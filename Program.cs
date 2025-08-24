@@ -8,10 +8,21 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Secret key for signing JWTs (in real life, store in secrets/KeyVault)
+
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "1337";
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "Issuer";
 
+
+// Add services to the container.
+builder.Services.AddControllers();
+// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+//extra
+// Register memory cache
+builder.Services.AddMemoryCache();
+builder.Services.AddScoped<IDataProviderService, DataProviderService>();
 // Add authentication services
 builder.Services
     .AddAuthentication(options =>
@@ -33,27 +44,13 @@ builder.Services
     });
 
 builder.Services.AddAuthorization();
-
-// Register memory cache
-builder.Services.AddMemoryCache();
-
-// Add services to the container.
-builder.Services.AddControllers();
+builder.Services.AddExternalApiClients(builder.Configuration);
 
 
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-builder.Services.AddScoped<IDataProviderService, DataProviderService>();
-
-builder.Services.AddExternalApiClients();
-
-builder.Configuration.GetSection("Integrations:Weather");
-builder.Configuration.GetSection("Integrations:News");
-
+//build the app
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Configure the middleware HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -64,6 +61,7 @@ app.UseHttpsRedirection();
 
 app.UseAuthorization();
 
+//Routing controller based apis
 app.MapControllers();
 
 app.Run();
