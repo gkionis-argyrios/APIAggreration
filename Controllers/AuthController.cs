@@ -6,6 +6,8 @@ using System.Text;
 
 namespace APIAggreration.Controllers
 {
+    [ApiController]
+    [Route("api/[Controller]")]
     public class AuthController : Controller
     {
         private readonly IConfiguration _config;

@@ -116,13 +116,13 @@ namespace APIAggreration.Services
             {
                 // Call all APIs in parallel
                 //data expires at 1 min
-                var urlApi1 = $"{_config["Integrations:Weather:BaseUrl"]}{_config["Integrations:Weather:ApiKey"]}";
-                var urlApi2 = $"{_config["Integrations:News:BaseUrl"]}{_config["Integrations:News:ApiKey"]}";
+                var urlApiWeather = $"{_config["Integrations:Weather:BaseUrl"]}{_config["Integrations:Weather:ApiKey"]}";
+                var urlApiNews = $"{_config["Integrations:News:BaseUrl"]}{_config["Integrations:News:ApiKey"]}";
                 var newsClient =
-                    GetCachedOrGetFromNewsAsync("news_data", GetFromAsync(ApiNames.News, urlApi2),
+                    GetCachedOrGetFromNewsAsync("news_data", GetFromAsync(ApiNames.News, urlApiNews),
                     TimeSpan.FromMinutes(1));
                 var weatherClient =
-                    GetCachedOrGetFromWeatherAsync("weather_data", GetFromAsync(ApiNames.Weather, urlApi1),
+                    GetCachedOrGetFromWeatherAsync("weather_data", GetFromAsync(ApiNames.Weather, urlApiWeather),
                     TimeSpan.FromMinutes(1));
 
                 await Task.WhenAll(weatherClient, newsClient);

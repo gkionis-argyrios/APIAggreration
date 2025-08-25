@@ -2,15 +2,14 @@ using APIAggreration.Extensions;
 using APIAggreration.Interfaces;
 using APIAggreration.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
 
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "1337";
-var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "Issuer";
+var jwtKey = builder.Configuration["Jwt:Key"] ?? "ThisIsAReallyLongSecureJwtKey1234567890";
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "https://mydomain.com";
 
 
 // Add services to the container.
@@ -43,9 +42,11 @@ builder.Services
         };
     });
 
+//Policy evaluation (decides if a user is allowed to access something).
+//The[Authorize] attribute support.
+//Without AddAuthorization(), the app won’t know how to handle [Authorize].
 builder.Services.AddAuthorization();
 builder.Services.AddExternalApiClients(builder.Configuration);
-
 
 //build the app
 var app = builder.Build();
@@ -59,6 +60,11 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+//Request comes in (example: GET /api/aggregated-data)
+//app.UseAuthentication() figures out who you are (checks token).
+//app.UseAuthorization() checks what you’re allowed to do.
+//If you have [Authorize] on the endpoint:
+//The middleware checks user claims/roles/policies.
 app.UseAuthorization();
 
 //Routing controller based apis

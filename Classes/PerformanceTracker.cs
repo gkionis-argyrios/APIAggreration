@@ -12,11 +12,6 @@ namespace APIAggreration.Classes
         private static readonly ConcurrentDictionary<string, ApiPerformanceStats> _stats = new();
         //it’s thread-safe → multiple threads can read/write without corrupting data.
 
-        //ConcurrentDictionary is only responsible for safely adding, removing, and retrieving
-        //items from the dictionary itself.
-        //_stats.GetOrAdd("News", ...) will never corrupt the dictionary,
-        // if > 1 threads call it at the same time.
-
         public static void Record(string apiName, double elapsedMs)
         {
             var stats = _stats.GetOrAdd(apiName, _ => new ApiPerformanceStats());
